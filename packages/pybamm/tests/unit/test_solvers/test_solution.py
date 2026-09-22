@@ -863,7 +863,7 @@ class TestSolution:
         np.testing.assert_array_equal(solution["c"].entries, solution_load["c"].entries)
         np.testing.assert_array_equal(solution["d"].entries, solution_load["d"].entries)
 
-    def test_get_data_cycles_steps(self):
+    def test_get_data_cycles_steps(self, tmp_path):
         model = pybamm.BaseModel()
         c = pybamm.Variable("c")
         model.rhs = {c: -c}
@@ -873,15 +873,34 @@ class TestSolution:
         solver = pybamm.ScipySolver()
         sol1 = solver.solve(model, np.linspace(0, 1))
         sol2 = solver.solve(model, np.linspace(1, 2))
+        sol3 = solver.solve(model, np.linspace(2, 3))
+        sol4 = solver.solve(model, np.linspace(3.1, 4))
+        sol5 = solver.solve(model, np.linspace(4.1, 5))
 
-        sol = sol1 + sol2
-        sol.cycles = [sol]
+        sola = sol1 + sol2  # duplicate time point at 1 dropped from sol2
+        solb = sol3 + sol4  # no duplicate time point between sol3 and sol4
+        # duplicate time point at 2 dropped from solb, no duplicate time point between solb and sol5
+        sol = sola + solb + sol5
+        sol.cycles = [sola, solb, sol5]
         sol.cycles[0].steps = [sol1, sol2]
+        sol.cycles[1].steps = [sol3, sol4]
+        sol.cycles[2].steps = [sol5]
 
         data = sol.get_data_dict("c")
-        np.testing.assert_array_equal(data["Cycle"], 0)
+        # check that the length of the data is correct
+        assert len(data["Step"]) == len(data["Cycle"]) == len(data["c"])
+        # check that the cycle and step numbers are correct
         np.testing.assert_array_equal(
-            data["Step"], np.concatenate([np.zeros(50), np.ones(49)])
+            data["Cycle"],
+            np.concatenate(
+                [np.zeros(50), np.zeros(49), np.ones(49), np.ones(50), 2 * np.ones(50)]
+            ),
+        )
+        np.testing.assert_array_equal(
+            data["Step"],
+            np.concatenate(
+                [np.zeros(50), np.ones(49), np.zeros(49), np.ones(50), np.zeros(50)]
+            ),
         )
 
     def test_pickle_first_states_across_processes(self, tmp_path):
